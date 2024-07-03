@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "fastapi-cache-tool"
+version = "0.1.0"
+description = "Simple and easy to use tool for caching while using FastAPI framework."
+authors = ["ilya-4real <ilya.chernishyov@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.111.0"
+redis = "^5.0.7"
+orjson = "^3.10.6"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

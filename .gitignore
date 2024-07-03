@@ -1,0 +1,5 @@
+.venv
+__pycache__/
+compose_files/
+app.py
+check.py
