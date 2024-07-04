@@ -3,7 +3,7 @@ from typing import Any
 
 import redis.asyncio as redis
 
-from src.backends.base import AbstractBackend
+from cachey.backends.base import AbstractBackend
 
 
 @dataclass(eq=False)

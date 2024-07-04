@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.backends.base import AbstractBackend
-from src.exceptions.base import KeyNotFoundError
+from cachey.backends.base import AbstractBackend
+from cachey.exceptions.base import KeyNotFoundError
 
 DEFAULT_TTL = 60
 
@@ -40,7 +40,6 @@ class InMemoryCacheBackend(AbstractBackend):
             Any | None: found cached value or None
         """
         try:
-            print("returning", self.cache_map[key][1])
             return self.cache_map[key][1]
         except KeyError:
             return None

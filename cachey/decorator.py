@@ -1,34 +1,31 @@
 import json
 from dataclasses import asdict, dataclass
 from functools import wraps
-from inspect import Signature, signature
-from typing import Awaitable, Callable, TypeVar
+from logging import getLogger
+from typing import Any, Awaitable, Callable
 
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-from src.backends.utils import convert_func_name_and_args_to_str
-from src.cache.base import CacheRegistry
-from src.cleaners.cleaner import FunctionCleaner
-from src.exceptions.base import CacheNotInitializedError, ResponseTypeNotSupported
+from cachey.backends.utils import convert_func_name_and_args_to_str
+from cachey.cache.base import CacheRegistry
+from cachey.cleaners.cleaner import FunctionCleaner
+from cachey.exceptions.base import CacheNotInitializedError, ResponseTypeNotSupported
+
+logger = getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass
 class CachedResponse:
     data: str | bytes | list | dict
     is_fastapi_response_subclass: bool
     fastapi_response_class: str | None
+    raw_response_headers: list[tuple[bytes, bytes]] | None = None
+
+    def set_headers(self, headers: list[tuple[bytes, bytes]]):
+        self.raw_response_headers = headers
 
 
-ResponseType = TypeVar(
-    "ResponseType",
-)
-
-
-def get_injected(sig: Signature):
-    print(list(sig.parameters.values()))
-
-
-def encode(data) -> str:
+def encode(data: Any, headers=None) -> str:
     if isinstance(data, (dict, list, str)):
         returning_value = CachedResponse(data, False, None)
     elif isinstance(data, (JSONResponse, HTMLResponse, PlainTextResponse)):
@@ -44,6 +41,11 @@ def encode(data) -> str:
     Supported types: dict, list, bytes, FastAPI's Response
     """
         )
+    if headers:
+        headers = [
+            (k.lower().decode("latin-1"), v.decode("latin-1")) for k, v in headers
+        ]
+        returning_value.set_headers(headers)
     return json.dumps(asdict(returning_value))
 
 
@@ -60,33 +62,48 @@ def decode(
                 return JSONResponse(cached_response.data)
             case "PlainTextResponse":
                 return PlainTextResponse(cached_response.data)
-    return data_dict["data"]
+    if data_dict["raw_response_headers"]:
+        data_dict["raw_response_headers"] = [
+            (k.lower().encode("latin-1"), v.encode("latin-1"))
+            for k, v in data_dict["raw_response_headers"]
+        ]
+    return data_dict
 
 
-def cache(ttl: int = 60):
-    def wrapper(func: Callable[..., Awaitable[ResponseType]]):
+def cache(
+    *,
+    ttl: int = 60,
+):
+    def wrapper(func: Callable[..., Awaitable[Any]]):
         @wraps(func)
-        async def inner(*args, **kwargs) -> ResponseType:
+        async def inner(*args, **kwargs) -> Any:
             registry = CacheRegistry.get_instance()
             if not registry:
                 raise CacheNotInitializedError(
                     "cache is not initialized and backend is not provided"
                 )
-
-            sig = signature(func)
-            get_injected(sig)
-            cleaner = FunctionCleaner(sig, kwargs)
+            logger.info("aba aba")
+            cleaner = FunctionCleaner(func, kwargs)
             kwargs_without_deps = cleaner.get_kwargs_without_injected_deps()
             kwargs_with_deps = cleaner.get_kwargs_with_injected_deps()
             key = convert_func_name_and_args_to_str(
                 "app_cache", func, **kwargs_without_deps
             )
             cached = await registry.get_cached(key)
-            if not cached:
+            if cached is not None:
+                cached_dict = decode(cached)
+                if cached_dict and cached_dict["raw_response_headers"]:  # type: ignore
+                    response = cleaner.get_response()
+                    response.raw_headers.extend(cached_dict["raw_response_headers"])  # type: ignore
+            else:
                 cached = await func(*args, **kwargs_with_deps)
-                cached = encode(cached)
+                response = cleaner.get_response()
+                if response:
+                    headers = cleaner.get_response_raw_headers()
+                    response.raw_headers = headers
+                cached = encode(cached, headers)
                 await registry.set_key(key, cached, ttl)
-            return decode(cached)  # type: ignore
+            return decode(cached)
 
         return inner
 
